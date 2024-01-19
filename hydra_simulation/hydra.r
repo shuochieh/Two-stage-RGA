@@ -1,4 +1,5 @@
-### Last update: 2023-01-26
+### Update: 2023-01-26
+### Last update: 2024-01-18
 
 hydra_core = function (y, X, ptt, lambda, step_size, tau, beta_current, M) {
   ###
@@ -20,28 +21,21 @@ hydra_core = function (y, X, ptt, lambda, step_size, tau, beta_current, M) {
   lwr_bd = as.vector((-lambda - f_prime_x) / (M[coord] * step_size))
   h = pmin(pmax(-beta_current[coord], lwr_bd), upp_bd)
   beta_current[coord] = beta_current[coord] + h
-  ## sequential version
-  # temp = ptt[[i]][coord_update]
-  # for (j in 1:tau) {
-  #   coord = temp[j]
-  #   f_prime_x = - t(U) %*% X[,coord]
-  #   upp_bd = (lambda - f_prime_x) / (M[coord] * step_size)
-  #   lwr_bd = (-lambda - f_prime_x) / (M[coord] * step_size)
-  #   h = min(max(-beta_current[coord], lwr_bd), upp_bd)
-  #   beta_current[coord] = beta_current[coord] + h
-  # }
 
   return(beta_current)
 }
 
 hydra = function (y, X, ptt, lambda, step_size, tau, n_iter = 500,
-                  beta_truth) {
+                  beta_truth, x_new, y_new) {
   
+  start_time = proc.time()[3]
   beta = rep(0, ncol(X))
   M = colSums(X^2) # t(X) %*% X
   loss = rep(0, n_iter)
   y_error = rep(0, n_iter)
   b_error = rep(0, n_iter)
+  elapsed_time = rep(0, n_iter)
+  rmse = rep(0, n_iter)
   
   for (i in 1:n_iter) {
     beta = hydra_core(y = y, X = X, ptt = ptt, lambda = lambda, 
@@ -52,11 +46,12 @@ hydra = function (y, X, ptt, lambda, step_size, tau, n_iter = 500,
     y_error[i] = mean((y - X %*% beta)^2)
     loss[i] = 0.5 * sum((y - X %*% beta)^2) + lambda * sum(abs(beta))
     
-    # cat("Hydra iteration", i, "\n")
+    rmse[i] = sqrt(mean( (y_new - (x_new %*% beta))^2 ))
+    elapsed_time[i] = proc.time()[3] - start_time
   }
   
   return(list("beta" = beta, "b_error" = b_error, "y_error" = y_error, 
-              "loss" = loss))
+              "loss" = loss, "RMSE" = rmse, "elapsed_time" = elapsed_time))
 }
 
 hydra2_core = function (y, X, ptt, lambda, D_para, tau, beta_current, theta,
@@ -80,28 +75,16 @@ hydra2_core = function (y, X, ptt, lambda, D_para, tau, beta_current, theta,
   z[coord] = z[coord] + t
   u[coord] = u[coord] - ((1 / theta^2) - (s / (tau * theta))) * t
     
-    ## Sequential version
-    # temp = ptt[[i]][coord_update]
-    # for (j in 1:tau) {
-    #   coord = temp[j] 
-    #   f_prime = -t(U) %*% X[,coord]
-    #   D = D_para[coord]
-    #   zi = z[coord]
-    #   t = -zi + sign(zi - ((f_prime * tau) / (s * theta * D))) * 
-    #       max(0, abs(((f_prime * tau) / (s * theta * D))) - (tau * lambda) / (s * theta * D))
-    #   z[coord] = z[coord] + t
-    #   u[coord] = u[coord] - ((1 / theta^2) - (s / (tau * theta))) * t
-    # }
   theta = 0.5 * (sqrt(theta^4 + 4 * theta^2) - theta^2)
   beta_current = (theta^2) * u + z
-  # theta = 0.5 * (sqrt(theta^4 + 4 * theta^2) - theta^2)
-  
+
   return(list("theta" = theta, "beta" = beta_current, "u" = u, "z" = z))
 }
 
 hydra2 = function (y, X, ptt, lambda, tau, step_size_factor = 10, 
-                   n_iter = 500, beta_truth) {
+                   n_iter = 500, beta_truth, x_new, y_new) {
   
+  start_time = proc.time()[3]
   D = colSums(X^2) * step_size_factor
   theta = tau / length(ptt[[1]])
   u = rep(0, ncol(X))
@@ -110,6 +93,8 @@ hydra2 = function (y, X, ptt, lambda, tau, step_size_factor = 10,
   y_error = rep(0, n_iter)
   loss = rep(0, n_iter)
   beta = rep(0, ncol(X))
+  elapsed_time = rep(0, n_iter)
+  rmse = rep(0, n_iter)
   
   for (i in 1:n_iter) {
     temp = hydra2_core(y = y, X = X, ptt = ptt, lambda = lambda, D_para = D,
@@ -123,14 +108,17 @@ hydra2 = function (y, X, ptt, lambda, tau, step_size_factor = 10,
     b_error[i] = sum((beta - beta_truth)^2)
     y_error[i] = mean((y - X %*% beta)^2)
     loss[i] = 0.5 * sum((y - X %*% beta)^2) + lambda * sum(abs(beta))
-    # cat("Hydra2 iteration", i, "\n")
+    
+    rmse[i] = sqrt(mean( (y_new - (x_new %*% beta))^2 ))
+    elapsed_time[i] = proc.time()[3] - start_time
   }
   
   return(list("y_error" = y_error, "b_error" = b_error, "beta" = beta,
-              "loss" = loss))
+              "loss" = loss, "RMSE" = rmse, "elapsed_time" = elapsed_time))
 } 
 
-rga_core = function (y, X, L, Kn, B_init = NULL, beta_truth) {
+rga_core = function (y, X, L, Kn, B_init = NULL, beta_truth, x_new, y_new) {
+  start_time = proc.time()[3]
   p = ncol(X)
   if (is.null(B_init)) {
     B = rep(0, p)
@@ -144,6 +132,8 @@ rga_core = function (y, X, L, Kn, B_init = NULL, beta_truth) {
   b_error = rep(NA, Kn)
   lambda_seq = rep(NA, Kn)
   J_hat = NULL
+  elapsed_time = rep(NA, Kn)
+  rmse = rep(NA, Kn)
   
   u = y - G
   for (i in 1:Kn) {
@@ -163,19 +153,25 @@ rga_core = function (y, X, L, Kn, B_init = NULL, beta_truth) {
     
     y_error[i] = mean(u^2)
     b_error[i] = sum((B - beta_truth)^2)
+    rmse[i] = sqrt(mean((y_new - x_new %*% B)^2))
+    elapsed_time[i] = proc.time()[3] - start_time
   }
   
   return(list("y_error" = y_error, "b_error" = b_error, "J_hat" = J_hat,
-              "B" = B))
+              "B" = B, "RMSE" = rmse, "elapsed_time" = elapsed_time))
 }
 
-tsrga = function (y, X, L, Kn1, Kn2, t_n, beta_truth) {
+tsrga = function (y, X, L, Kn1, Kn2, t_n, beta_truth, x_new, y_new) {
+  
+  start_time = proc.time()[3]
   p = ncol(X)
   B = rep(0, p)
   
   y_error = rep(NA, Kn1 + Kn2)
   b_error = rep(NA, Kn1 + Kn2)
   J_hat = NULL
+  elapsed_time = rep(NA, Kn1 + Kn2)
+  rmse = rep(NA, Kn1 + Kn2)
   
   G = 0
   u = y - G
@@ -195,6 +191,8 @@ tsrga = function (y, X, L, Kn1, Kn2, t_n, beta_truth) {
     
     y_error[i] = mean(u^2)
     b_error[i] = sum((B - beta_truth)^2)
+    rmse[i] = sqrt(mean((y_new - x_new %*% B)^2))
+    elapsed_time[i] = proc.time()[3] - start_time
     
     if (i > 1 && y_error[i] / y_error[i - 1] > 1 - t_n) {
       detach_i = i
@@ -207,7 +205,6 @@ tsrga = function (y, X, L, Kn1, Kn2, t_n, beta_truth) {
   }
   
   X = X[,J_hat]
-  # B = rep(0, length(J_hat))
   B = B[J_hat]
   G = X %*% B
   u = y - G
@@ -228,13 +225,14 @@ tsrga = function (y, X, L, Kn1, Kn2, t_n, beta_truth) {
     
     y_error[i + detach_i] = mean(u^2)
     b_error[i + detach_i] = sum((B - beta_truth[J_hat])^2) + sum((beta_truth[-J_hat])^2)
+    rmse[i + detach_i] = sqrt(mean((y_new - x_new[,J_hat] %*% B)^2))
+    elapsed_time[i + detach_i] = proc.time()[3] - start_time
   }
   
   B_res = rep(0, p)
   B_res[J_hat] = B
   
   return(list("y_error" = y_error, "b_error" = b_error, "J_hat" = J_hat, 
-              "B" = B_res, "detach" = detach_i))
-  
+              "B" = B_res, "detach" = detach_i, "RMSE" = rmse, "elapsed_time" = elapsed_time))
 }
 
