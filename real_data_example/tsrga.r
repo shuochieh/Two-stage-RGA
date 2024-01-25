@@ -1,4 +1,5 @@
-### Last update: 2022-12-08
+### Update: 2022-12-08
+### Last update: 2024-01-19
 
 library(parallel)
 library(MASS)
@@ -592,6 +593,25 @@ tsrga_fit = function(model, X, x_means, y_means, x_2norms) {
   }
   return(pred)
 }
+
+tsrga_pilot = function(y1, X1, y2, X2, 
+                       dims, L, Kn1, Kn2, t_n_grid = log(seq(1.01, 10, length.out=10)),
+                       mc_cores = 1, parallel = FALSE,
+                       scale = TRUE, demean = TRUE, verbose = FALSE) {
+  m = length(t_n_grid)
+  MSPEs = rep(NA, m)
+  for (i in 1:m) {
+    t_n = t_n_grid[i]
+    model = tsrga(y1, X1, dims, L, t_n, Kn1, Kn2, mc_cores, parallel, scale, demean, verbose)
+    e = y2 - tsrga_fit(model, X2, model$x_means, model$y_means, model$x_2norms)
+    MSPEs[i] = mean(e^2)
+  }
+  
+  return(t_n_grid[which.min(MSPEs)])
+}
+
+
+# Below are defunct codes
 
 var_tsrga = function(y, features, L, t_n, Kn1, Kn2, dims, partial_out_dims, 
                      mc_cores = 1, parallel = FALSE, scale = TRUE, 
