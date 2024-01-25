@@ -1,4 +1,5 @@
-### Last update: 2022-02-02
+### Update: 2022-02-02
+### Last update: 2024-01-19
 
 library(parallel)
 library(MASS)
@@ -576,7 +577,6 @@ tsrga = function(y, X, dims, L, t_n, Kn1, Kn2, mc_cores = 1, parallel = FALSE,
               "lambda1" = res1$lambda, "lambda2" = res2$lambda, "dims" = dims))
 }
 
-
 tsrga_fit = function(model, X, x_means, y_means, x_2norms) {
   J_hat = model$J_hat
   dims = model$dims
@@ -594,29 +594,18 @@ tsrga_fit = function(model, X, x_means, y_means, x_2norms) {
   return(pred)
 }
 
-tsrga_eval = function(model, new_X, new_Y = NULL, y_dim, 
-                      partial_out_dims = c(1:48), scale = TRUE) {
-  Z = new_X[[1]][,partial_out_dims]
-  for (i in 1:length(new_X)) {
-    new_X[[i]] = new_X[[i]][,-partial_out_dims]
-    new_X[[i]] = t(t(new_X[[i]]) - model$x_means[[i]])
-    if (scale) {
-      new_X[[i]] = new_X[[i]] / model$x_2norms[i]
-    }
+tsrga_pilot = function(y1, X1, y2, X2, 
+                       dims, L, Kn1, Kn2, t_n_grid = log(seq(1.01, 10, length.out=10)),
+                       mc_cores = 1, parallel = FALSE,
+                       scale = TRUE, demean = TRUE, verbose = FALSE) {
+  m = length(t_n_grid)
+  MSPEs = rep(NA, m)
+  for (i in 1:m) {
+    t_n = t_n_grid[i]
+    model = tsrga(y1, X1, dims, L, t_n, Kn1, Kn2, mc_cores, parallel, scale, demean, verbose)
+    e = y2 - tsrga_fit(model, X2, model$x_means, model$y_means, model$x_2norms)
+    MSPEs[i] = mean(e^2)
   }
   
-  new_X = new_X[model$J_hat]
-  pred = matlist_prod(1:length(model$J_hat), new_X, model$B)
-  pred = pred + t(t(Z) - model$z_means) %*% model$B_ylag
-  if (y_dim == 1) {
-    pred = pred + model$y_means
-  } else {
-    pred = t(t(pred) + model$y_means)
-  }
-  
-  if (is.null(new_Y)) {
-    return(list("pred" = pred))
-  } else {
-    return(list("pred" = pred, "loss" = mean((new_Y - pred)^2))) 
-  }
+  return(t_n_grid[which.min(MSPEs)])
 }
